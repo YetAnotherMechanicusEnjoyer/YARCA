@@ -1,4 +1,6 @@
 use std::{
+    collections::HashMap,
+    fmt,
     io::{self, Read, Write, stdout},
     net::TcpStream,
     sync::mpsc,
@@ -8,24 +10,40 @@ use std::{
 
 const RECONNECT_DELAY: u64 = 5;
 
+#[derive(PartialEq, Clone)]
 enum ClientEvent {
     UserInput(String),
     ServerDisconnected,
     Quit,
 }
 
-fn main() -> io::Result<()> {
-    print!("Enter server's ip address: ");
-    stdout().flush()?;
-    let mut ip = String::new();
-    io::stdin().read_line(&mut ip)?;
-    let ip = ip.trim().to_string();
+enum EventError {
+    NotFound,
+}
 
-    print!("Enter server's port: ");
+impl fmt::Display for EventError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let desc = match *self {
+            EventError::NotFound => "Command not found",
+        };
+        f.write_str(desc)
+    }
+}
+
+fn commands(cmds_map: &HashMap<&str, ClientEvent>, cmd: &str) -> Result<ClientEvent, EventError> {
+    if let Some(event) = cmds_map.get(&cmd) {
+        Ok(event.to_owned())
+    } else {
+        Err(EventError::NotFound)
+    }
+}
+
+fn main() -> io::Result<()> {
+    print!("Enter server's address: ");
     stdout().flush()?;
-    let mut port = String::new();
-    io::stdin().read_line(&mut port)?;
-    let port = port.trim().to_string();
+    let mut addr = String::new();
+    io::stdin().read_line(&mut addr)?;
+    let addr = addr.trim().to_string();
 
     print!("Enter your username: ");
     stdout().flush()?;
@@ -33,7 +51,7 @@ fn main() -> io::Result<()> {
     io::stdin().read_line(&mut username)?;
     let username = username.trim().to_string();
 
-    let addr = format!("{ip}:{port}");
+    let cmds_map: HashMap<&str, ClientEvent> = HashMap::from([("quit", ClientEvent::Quit)]);
 
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
@@ -45,13 +63,24 @@ fn main() -> io::Result<()> {
             match io::stdin().read_line(&mut input_buffer) {
                 Ok(_) => {
                     let input_trim: &str = input_buffer.trim();
-                    match input_trim {
-                        "/quit" => {
-                            let _ = tx_stdin.send(ClientEvent::Quit);
-                            break;
-                        }
-                        _ => {
+                    let input = input_trim.trim_matches('/');
+                    match input_trim.chars().next() {
+                        Some('/') => match commands(&cmds_map, input) {
+                            Ok(event) => {
+                                let _ = tx_stdin.send(event.clone());
+                                if event == ClientEvent::Quit {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Command Error (\"{input}\") : {e}");
+                            }
+                        },
+                        Some(_) => {
                             let _ = tx_stdin.send(ClientEvent::UserInput(input_trim.to_string()));
+                        }
+                        None => {
+                            break;
                         }
                     };
                 }
