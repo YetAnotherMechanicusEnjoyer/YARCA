@@ -11,7 +11,6 @@ const RECONNECT_DELAY: u64 = 5;
 enum ClientEvent {
     UserInput(String),
     ServerDisconnected,
-    Reconnect,
     Quit,
 }
 
@@ -36,9 +35,6 @@ fn main() -> io::Result<()> {
 
     let addr = format!("{ip}:{port}");
 
-    let _ = TcpStream::connect(&addr)?;
-    println!("Connected to chat server !");
-
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
     let tx_stdin = tx_main_event.clone();
@@ -53,10 +49,6 @@ fn main() -> io::Result<()> {
                         "/quit" => {
                             let _ = tx_stdin.send(ClientEvent::Quit);
                             break;
-                        }
-                        "/reconnect" => {
-                            println!("Reconnecting...");
-                            let _ = tx_stdin.send(ClientEvent::Reconnect);
                         }
                         _ => {
                             let _ = tx_stdin.send(ClientEvent::UserInput(input_trim.to_string()));
@@ -119,7 +111,7 @@ fn main() -> io::Result<()> {
                         print!("{message}");
                     }
                     Ok(_) => {
-                        println!("\nServer disconnected. Attempting to reconnect...");
+                        println!("\nServer disconnected.");
                         let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
@@ -159,15 +151,10 @@ fn main() -> io::Result<()> {
                     ClientEvent::ServerDisconnected => {
                         break;
                     }
-                    ClientEvent::Reconnect => {
-                        println!("Manually triggering a reconnection attempt...");
-                        let _ = stream.shutdown(std::net::Shutdown::Both);
-                        break;
-                    }
                     ClientEvent::Quit => {
                         println!("Disconnecting...");
                         let _ = stream.shutdown(std::net::Shutdown::Both);
-                        break;
+                        break 'connection_loop;
                     }
                 },
                 Err(mpsc::TryRecvError::Empty) => {
