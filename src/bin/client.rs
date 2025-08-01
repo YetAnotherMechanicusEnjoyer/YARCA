@@ -1,11 +1,19 @@
 use std::{
     io::{self, Read, Write, stdout},
     net::TcpStream,
+    sync::mpsc,
     thread,
     time::Duration,
 };
 
 const RECONNECT_DELAY: u64 = 5;
+
+enum ClientEvent {
+    UserInput(String),
+    ServerDisconnected,
+    Reconnect,
+    Quit,
+}
 
 fn main() -> io::Result<()> {
     print!("Enter server's ip address: ");
@@ -28,16 +36,50 @@ fn main() -> io::Result<()> {
 
     let addr = format!("{ip}:{port}");
 
-    let mut current_stream: Option<TcpStream> = None;
+    let _ = TcpStream::connect(&addr)?;
+    println!("Connected to chat server !");
 
-    loop {
-        while current_stream.is_none() {
+    let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
+
+    let tx_stdin = tx_main_event.clone();
+    thread::spawn(move || {
+        let mut input_buffer = String::new();
+        loop {
+            input_buffer.clear();
+            match io::stdin().read_line(&mut input_buffer) {
+                Ok(_) => {
+                    let input_trim: &str = input_buffer.trim();
+                    match input_trim {
+                        "/quit" => {
+                            let _ = tx_stdin.send(ClientEvent::Quit);
+                            break;
+                        }
+                        "/reconnect" => {
+                            println!("Reconnecting...");
+                            let _ = tx_stdin.send(ClientEvent::Reconnect);
+                        }
+                        _ => {
+                            let _ = tx_stdin.send(ClientEvent::UserInput(input_trim.to_string()));
+                        }
+                    };
+                }
+                Err(e) => {
+                    eprintln!("Error reading from stdin thread: {e}");
+                    let _ = tx_stdin.send(ClientEvent::Quit);
+                    break;
+                }
+            }
+        }
+    });
+
+    'connection_loop: loop {
+        let mut stream = loop {
             println!("Attempting to connect to {}...", &addr);
             match TcpStream::connect(&addr) {
-                Ok(mut stream) => {
-                    println!("Connected to {} !", &addr);
+                Ok(mut s) => {
+                    println!("Connected to {}", &addr);
 
-                    if let Err(e) = stream.write_all(username.as_bytes()) {
+                    if let Err(e) = s.write_all(username.as_bytes()) {
                         eprintln!("Error sending username: {e}");
                         eprintln!(
                             "Connection failed during initial handshake. Retrying in {RECONNECT_DELAY} seconds..."
@@ -45,16 +87,16 @@ fn main() -> io::Result<()> {
                         thread::sleep(Duration::from_secs(RECONNECT_DELAY));
                         continue;
                     }
-                    if let Err(e) = stream.write_all(b"\n") {
+
+                    if let Err(e) = s.write_all(b"\n") {
                         eprintln!("Error sending newline after username: {e}");
                         eprintln!(
-                            "Connection failed during initial handshake. Retrying in {RECONNECT_DELAY} seconds..."
+                            "Connection failed during initial handshade. Retrying in {RECONNECT_DELAY} seconds..."
                         );
                         thread::sleep(Duration::from_secs(RECONNECT_DELAY));
                         continue;
                     }
-
-                    current_stream = Some(stream);
+                    break s;
                 }
                 Err(e) => {
                     eprintln!("Failed to connect to {}: {e}", &addr);
@@ -62,23 +104,23 @@ fn main() -> io::Result<()> {
                     thread::sleep(Duration::from_secs(RECONNECT_DELAY));
                 }
             }
-        }
+        };
 
-        let mut stream = current_stream.take().unwrap();
-
-        let mut write_stream_clone = stream.try_clone()?;
-
+        let mut read_stream_clone = stream.try_clone()?;
+        let tx_read_event = tx_main_event.clone();
         let read_thread_username = username.clone();
+
         let read_handle = thread::spawn(move || {
             let mut buffer = [0; 1024];
             loop {
-                match write_stream_clone.read(&mut buffer) {
+                match read_stream_clone.read(&mut buffer) {
                     Ok(bytes_read) if bytes_read > 0 => {
                         let message = String::from_utf8_lossy(&buffer[..bytes_read]);
                         print!("{message}");
                     }
                     Ok(_) => {
                         println!("\nServer disconnected. Attempting to reconnect...");
+                        let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
                     Err(ref e)
@@ -89,51 +131,56 @@ fn main() -> io::Result<()> {
                         eprintln!(
                             "\nConnection error for {read_thread_username}: {e}. Attempting to reconnect..."
                         );
+                        let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
                     Err(e) => {
                         eprintln!(
-                            "\nUnexpected error reading form server for {read_thread_username}: {e}. Attempting to reconnect..."
+                            "\nUnexpected error reading from server for {read_thread_username}: {e}"
                         );
+                        let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
                 }
             }
         });
 
-        let mut send_result = Ok(());
-
         loop {
-            let mut input = String::new();
-            match io::stdin().read_line(&mut input) {
-                Ok(_) => {
-                    if input.trim() == "/quit" {
+            match rx_main_event.try_recv() {
+                Ok(event) => match event {
+                    ClientEvent::UserInput(input) => {
+                        let message_to_send = format!("{input}\n");
+                        if let Err(e) = stream.write_all(message_to_send.as_bytes()) {
+                            eprintln!("Error sending message: {e}");
+                            let _ = tx_main_event.send(ClientEvent::ServerDisconnected);
+                            break;
+                        }
+                    }
+                    ClientEvent::ServerDisconnected => {
+                        break;
+                    }
+                    ClientEvent::Reconnect => {
+                        println!("Manually triggering a reconnection attempt...");
+                        let _ = stream.shutdown(std::net::Shutdown::Both);
+                        break;
+                    }
+                    ClientEvent::Quit => {
                         println!("Disconnecting...");
                         let _ = stream.shutdown(std::net::Shutdown::Both);
-                        send_result = Ok(());
                         break;
                     }
-
-                    if let Err(e) = stream.write_all(input.as_bytes()) {
-                        eprintln!("Error sending message: {e}");
-                        send_result = Err(e);
-                        break;
-                    }
+                },
+                Err(mpsc::TryRecvError::Empty) => {
+                    thread::sleep(Duration::from_millis(50));
                 }
-                Err(e) => {
-                    eprintln!("Error reading from stdin: {e}");
-                    break;
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("Event channel disconnected. Exiting client.");
+                    break 'connection_loop;
                 }
             }
         }
 
         let _ = read_handle.join();
-
-        if send_result.is_err() {
-            println!("Disconnected from server. Retrying connection...");
-        } else {
-            break;
-        }
     }
 
     Ok(())
