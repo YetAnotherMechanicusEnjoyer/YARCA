@@ -8,6 +8,10 @@ use std::{
     time::Duration,
 };
 
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+use hex::{decode, encode};
+use rand::{Rng, rng};
+
 const RECONNECT_DELAY: u64 = 5;
 
 #[derive(PartialEq, Clone)]
@@ -38,7 +42,41 @@ fn commands(cmds_map: &HashMap<&str, ClientEvent>, cmd: &str) -> Result<ClientEv
     }
 }
 
+fn encrypt(plaintext: &str, key: &[u8; 32]) -> (String, String) {
+    let mut rng = rng();
+    let nonce_bytes: [u8; 12] = rng.random();
+    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let cipher_text = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .expect("Encryption failed.");
+    (encode(nonce_bytes), encode(&cipher_text))
+}
+
+fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<String> {
+    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
+
+    let nonce_bytes = decode(nonce_hex).ok()?;
+    let ciphertext_bytes = decode(ciphertext_hex).ok()?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    match cipher.decrypt(nonce, ciphertext_bytes.as_slice()) {
+        Ok(plaintext_bytes) => String::from_utf8(plaintext_bytes).ok(),
+        Err(_) => None,
+    }
+}
+
 fn main() -> io::Result<()> {
+    dotenvy::dotenv().ok();
+
+    let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the .env file");
+
+    let secret_key: [u8; 32] = match secret_key_string.as_bytes().try_into() {
+        Ok(key_bytes) => key_bytes,
+        Err(_) => panic!("SECRET must be exactly 32 bytes long."),
+    };
+
     print!("Enter server's address: ");
     stdout().flush()?;
     let mut addr = String::new();
@@ -100,7 +138,9 @@ fn main() -> io::Result<()> {
                 Ok(mut s) => {
                     println!("Connected to {}", &addr);
 
-                    if let Err(e) = s.write_all(username.as_bytes()) {
+                    let (nonce, encrypted_username) = encrypt(&username, &secret_key);
+                    let encrypted_message = format!("{nonce}:{encrypted_username}\n");
+                    if let Err(e) = s.write_all(encrypted_message.as_bytes()) {
                         eprintln!("Error sending username: {e}");
                         eprintln!(
                             "Connection failed during initial handshake. Retrying in {RECONNECT_DELAY} seconds..."
@@ -109,14 +149,6 @@ fn main() -> io::Result<()> {
                         continue;
                     }
 
-                    if let Err(e) = s.write_all(b"\n") {
-                        eprintln!("Error sending newline after username: {e}");
-                        eprintln!(
-                            "Connection failed during initial handshade. Retrying in {RECONNECT_DELAY} seconds..."
-                        );
-                        thread::sleep(Duration::from_secs(RECONNECT_DELAY));
-                        continue;
-                    }
                     break s;
                 }
                 Err(e) => {
@@ -136,8 +168,18 @@ fn main() -> io::Result<()> {
             loop {
                 match read_stream_clone.read(&mut buffer) {
                     Ok(bytes_read) if bytes_read > 0 => {
-                        let message = String::from_utf8_lossy(&buffer[..bytes_read]);
-                        print!("{message}");
+                        let received_data = String::from_utf8_lossy(&buffer[..bytes_read]);
+                        if let Some((nonce_hex, ciphertext_hex)) = received_data.split_once(':') {
+                            if let Some(decrypted_message) =
+                                decrypt(nonce_hex, ciphertext_hex, &secret_key)
+                            {
+                                print!("{decrypted_message}");
+                            } else {
+                                eprintln!("Failed to decrypt message.");
+                            }
+                        } else {
+                            eprintln!("Received malformed message: {received_data}");
+                        }
                     }
                     Ok(_) => {
                         println!("\nServer disconnected.");
@@ -170,7 +212,8 @@ fn main() -> io::Result<()> {
             match rx_main_event.try_recv() {
                 Ok(event) => match event {
                     ClientEvent::UserInput(input) => {
-                        let message_to_send = format!("{input}\n");
+                        let (nonce, encrypted_message) = encrypt(&input, &secret_key);
+                        let message_to_send = format!("{nonce}:{encrypted_message}\n");
                         if let Err(e) = stream.write_all(message_to_send.as_bytes()) {
                             eprintln!("Error sending message: {e}");
                             let _ = tx_main_event.send(ClientEvent::ServerDisconnected);
