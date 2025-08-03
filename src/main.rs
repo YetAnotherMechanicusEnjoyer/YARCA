@@ -106,10 +106,7 @@ fn main() -> Result<(), std::io::Error> {
                     let full_message = format!("[{sender}]: {content}");
                     println!("Broadcasting: {}", full_message.trim());
 
-                    for (name, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
-                        if name == &sender {
-                            continue;
-                        }
+                    for (_, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
                         let (nonce, encrypted_msg) = encrypt(&full_message, &secret_key_arc_clone);
                         let message_to_send = format!("{nonce}:{encrypted_msg}");
 
