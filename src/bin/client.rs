@@ -1,3 +1,13 @@
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute,
+    style::Print,
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+use hex::{decode, encode};
+use rand::{Rng, rng};
 use std::{
     collections::HashMap,
     fmt,
@@ -7,10 +17,6 @@ use std::{
     thread,
     time::Duration,
 };
-
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
-use hex::{decode, encode};
-use rand::{Rng, rng};
 
 const RECONNECT_DELAY: u64 = 5;
 
@@ -102,36 +108,75 @@ fn main() -> io::Result<()> {
     let tx_stdin = tx_main_event.clone();
     thread::spawn(move || {
         let mut input_buffer = String::new();
+        enable_raw_mode().unwrap();
+
+        struct TerminalGuard;
+        impl Drop for TerminalGuard {
+            fn drop(&mut self) {
+                disable_raw_mode().unwrap();
+            }
+        }
+        let _guard = TerminalGuard;
+
+        execute!(
+            io::stdout(),
+            cursor::MoveToColumn(0),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+        )
+        .unwrap();
         loop {
-            input_buffer.clear();
-            match io::stdin().read_line(&mut input_buffer) {
-                Ok(_) => {
-                    let input_trim: &str = input_buffer.trim();
-                    let input = input_trim.trim_matches('/');
-                    match input_trim.chars().next() {
-                        Some('/') => match commands(&cmds_map, input) {
-                            Ok(event) => {
-                                let _ = tx_stdin.send(event.clone());
-                                if event == ClientEvent::Quit {
-                                    break;
+            if let Ok(Event::Key(key_event)) = event::read() {
+                if key_event.kind == KeyEventKind::Press {
+                    match key_event.code {
+                        KeyCode::Enter => {
+                            if !input_buffer.is_empty() {
+                                let input = input_buffer.trim().to_string();
+                                if input.starts_with('/') {
+                                    let command = input.trim_start_matches('/');
+                                    match commands(&cmds_map, command) {
+                                        Ok(event) => {
+                                            let _ = tx_stdin.send(event.clone());
+                                            if event == ClientEvent::Quit {
+                                                break;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Command Error (\"{command}\"): {e}\n\r");
+                                        }
+                                    };
+                                } else {
+                                    let _ = tx_stdin.send(ClientEvent::UserInput(input.clone()));
                                 }
+                                input_buffer.clear();
+                                execute!(
+                                    io::stdout(),
+                                    cursor::MoveToColumn(0),
+                                    crossterm::terminal::Clear(
+                                        crossterm::terminal::ClearType::CurrentLine
+                                    )
+                                )
+                                .unwrap();
                             }
-                            Err(e) => {
-                                eprintln!("Command Error (\"{input}\") : {e}");
+                        }
+                        KeyCode::Backspace => {
+                            if !input_buffer.is_empty() {
+                                input_buffer.pop();
+                                execute!(
+                                    io::stdout(),
+                                    cursor::MoveLeft(1),
+                                    crossterm::terminal::Clear(
+                                        crossterm::terminal::ClearType::UntilNewLine
+                                    )
+                                )
+                                .unwrap();
                             }
-                        },
-                        Some(_) => {
-                            let _ = tx_stdin.send(ClientEvent::UserInput(input_trim.to_string()));
                         }
-                        None => {
-                            break;
+                        KeyCode::Char(c) => {
+                            input_buffer.push(c);
+                            execute!(io::stdout(), Print(c)).unwrap();
                         }
-                    };
-                }
-                Err(e) => {
-                    eprintln!("Error reading from stdin thread: {e}");
-                    let _ = tx_stdin.send(ClientEvent::Quit);
-                    break;
+                        _ => {}
+                    }
                 }
             }
         }
@@ -139,18 +184,27 @@ fn main() -> io::Result<()> {
 
     'connection_loop: loop {
         let mut stream = loop {
-            println!("Attempting to connect to {}...", &addr);
+            execute!(
+                io::stdout(),
+                Print(format!("Attempting to connect to {}...\n\r", &addr))
+            )?;
             match TcpStream::connect(&addr) {
                 Ok(mut s) => {
-                    println!("Connected to {}", &addr);
+                    execute!(io::stdout(), Print(format!("Connected to {}\n\r", &addr)))?;
 
                     let (nonce, encrypted_username) = encrypt(&username, &secret_key);
-                    let encrypted_message = format!("{nonce}:{encrypted_username}\n");
+                    let encrypted_message = format!("{nonce}:{encrypted_username}\n\r");
                     if let Err(e) = s.write_all(encrypted_message.as_bytes()) {
-                        eprintln!("Error sending username: {e}");
-                        eprintln!(
-                            "Connection failed during initial handshake. Retrying in {RECONNECT_DELAY} seconds..."
-                        );
+                        execute!(
+                            io::stdout(),
+                            Print(format!("Error sending username: {e}\n\r"))
+                        )?;
+                        execute!(
+                            io::stdout(),
+                            Print(format!(
+                                "Connection failed during initial handshake. Retrying in {RECONNECT_DELAY} seconds...\n\r"
+                            ))
+                        )?;
                         thread::sleep(Duration::from_secs(RECONNECT_DELAY));
                         continue;
                     }
@@ -158,8 +212,14 @@ fn main() -> io::Result<()> {
                     break s;
                 }
                 Err(e) => {
-                    eprintln!("Failed to connect to {}: {e}", &addr);
-                    eprintln!("Retrying in {RECONNECT_DELAY} seconds...");
+                    execute!(
+                        io::stdout(),
+                        Print(format!("Failed to connect to {}: {e}\n\r", &addr))
+                    )?;
+                    execute!(
+                        io::stdout(),
+                        Print(format!("Retrying in {RECONNECT_DELAY} seconds...\n\r"))
+                    )?;
                     thread::sleep(Duration::from_secs(RECONNECT_DELAY));
                 }
             }
@@ -179,16 +239,22 @@ fn main() -> io::Result<()> {
                             if let Some(decrypted_message) =
                                 decrypt(nonce_hex, ciphertext_hex, &secret_key)
                             {
-                                println!("{decrypted_message}");
+                                execute!(io::stdout(), Print(format!("{decrypted_message}\n\r")))
+                                    .unwrap();
                             } else {
-                                eprintln!("Failed to decrypt message.");
+                                execute!(io::stdout(), Print("Failed to decrypt message.\n\r"))
+                                    .unwrap();
                             }
                         } else {
-                            eprintln!("Received malformed message: {received_data}");
+                            execute!(
+                                io::stdout(),
+                                Print(format!("Received malformed message: {received_data}\n\r"))
+                            )
+                            .unwrap();
                         }
                     }
                     Ok(_) => {
-                        println!("\nServer disconnected.");
+                        execute!(io::stdout(), Print("\nServer disconnected.\n\r")).unwrap();
                         let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
@@ -197,16 +263,22 @@ fn main() -> io::Result<()> {
                             || e.kind() == io::ErrorKind::BrokenPipe
                             || e.kind() == io::ErrorKind::UnexpectedEof =>
                     {
-                        eprintln!(
-                            "\nConnection error for {read_thread_username}: {e}. Attempting to reconnect..."
-                        );
+                        execute!(
+                            io::stdout(),
+                            Print(format!(
+                                "\nConnection error for {read_thread_username}: {e}. Attempting to reconnect...\n\r"
+                            ))
+                        ).unwrap();
                         let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
                     Err(e) => {
-                        eprintln!(
-                            "\nUnexpected error reading from server for {read_thread_username}: {e}"
-                        );
+                        execute!(
+                            io::stdout(),
+                            Print(format!(
+                                "\nUnexpected error reading from server for {read_thread_username}: {e}\n\r"
+                            ))
+                        ).unwrap();
                         let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
@@ -219,9 +291,12 @@ fn main() -> io::Result<()> {
                 Ok(event) => match event {
                     ClientEvent::UserInput(input) => {
                         let (nonce, encrypted_message) = encrypt(&input, &secret_key);
-                        let message_to_send = format!("{nonce}:{encrypted_message}\n");
+                        let message_to_send = format!("{nonce}:{encrypted_message}\n\r");
                         if let Err(e) = stream.write_all(message_to_send.as_bytes()) {
-                            eprintln!("Error sending message: {e}");
+                            execute!(
+                                io::stdout(),
+                                Print(format!("Error sending message: {e}\n\r"))
+                            )?;
                             let _ = tx_main_event.send(ClientEvent::ServerDisconnected);
                             break;
                         }
@@ -230,7 +305,7 @@ fn main() -> io::Result<()> {
                         break;
                     }
                     ClientEvent::Quit => {
-                        println!("Disconnecting...");
+                        execute!(io::stdout(), Print("\nDisconnecting...\n\r"))?;
                         let _ = stream.shutdown(std::net::Shutdown::Both);
                         break 'connection_loop;
                     }
@@ -239,7 +314,10 @@ fn main() -> io::Result<()> {
                     thread::sleep(Duration::from_millis(50));
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    eprintln!("Event channel disconnected. Exiting client.");
+                    execute!(
+                        io::stdout(),
+                        Print("Event channel disconnected. Exiting client.\n\r")
+                    )?;
                     break 'connection_loop;
                 }
             }
