@@ -254,7 +254,7 @@ fn main() -> io::Result<()> {
                             if let Some(decrypted_message) =
                                 decrypt(nonce_hex, ciphertext_hex, &secret_key)
                             {
-                                execute!(io::stdout(), Print(format!("{decrypted_message}\n\r")))
+                                execute!(io::stdout(), Print(format!("\n{decrypted_message}\n\r")))
                                     .unwrap();
                             } else {
                                 execute!(io::stdout(), Print("Failed to decrypt message.\n\r"))
