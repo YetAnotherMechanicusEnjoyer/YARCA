@@ -67,6 +67,12 @@ fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<Stri
     }
 }
 
+fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
+    let mut hashmap: HashMap<&'static str, ClientEvent> = HashMap::new();
+    hashmap.insert("quit", ClientEvent::Quit);
+    hashmap
+}
+
 fn main() -> io::Result<()> {
     dotenvy::dotenv().ok();
 
@@ -89,7 +95,7 @@ fn main() -> io::Result<()> {
     io::stdin().read_line(&mut username)?;
     let username = username.trim().to_string();
 
-    let cmds_map: HashMap<&str, ClientEvent> = HashMap::from([("quit", ClientEvent::Quit)]);
+    let cmds_map = init_hashmap();
 
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
