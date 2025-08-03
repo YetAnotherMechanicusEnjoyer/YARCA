@@ -24,11 +24,24 @@ const RECONNECT_DELAY: u64 = 5;
 enum ClientEvent {
     UserInput(String),
     ServerDisconnected,
+    Custom(fn(bool) -> &'static str),
     Quit,
 }
 
 enum EventError {
     NotFound,
+}
+
+impl fmt::Display for ClientEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let desc = match *self {
+            ClientEvent::UserInput(_) => "User's input",
+            ClientEvent::ServerDisconnected => "No connexion with server",
+            ClientEvent::Quit => "Quit chat",
+            ClientEvent::Custom(help) => help(true),
+        };
+        f.write_str(desc)
+    }
 }
 
 impl fmt::Display for EventError {
@@ -45,6 +58,19 @@ fn commands(cmds_map: &HashMap<&str, ClientEvent>, cmd: &str) -> Result<ClientEv
         Ok(event.to_owned())
     } else {
         Err(EventError::NotFound)
+    }
+}
+
+fn help(get_desc: bool) -> &'static str {
+    if get_desc {
+        "Shows available commands"
+    } else {
+        let cmds = init_hashmap();
+        execute!(io::stdout(), Print("Available Commands :\n\r")).unwrap();
+        for (cmd, desc) in cmds.iter() {
+            execute!(io::stdout(), Print(format!("  {cmd} : {desc}\n\r"))).unwrap();
+        }
+        ""
     }
 }
 
@@ -76,6 +102,7 @@ fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<Stri
 fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     let mut hashmap: HashMap<&'static str, ClientEvent> = HashMap::new();
     hashmap.insert("quit", ClientEvent::Quit);
+    hashmap.insert("help", ClientEvent::Custom(help));
     hashmap
 }
 
@@ -319,6 +346,9 @@ fn main() -> io::Result<()> {
                         execute!(io::stdout(), Print("\nDisconnecting...\n\r"))?;
                         let _ = stream.shutdown(std::net::Shutdown::Both);
                         break 'connection_loop;
+                    }
+                    ClientEvent::Custom(func) => {
+                        let _ = func(false);
                     }
                 },
                 Err(mpsc::TryRecvError::Empty) => {
