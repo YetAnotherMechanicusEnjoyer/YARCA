@@ -179,7 +179,7 @@ fn main() -> io::Result<()> {
                             if let Some(decrypted_message) =
                                 decrypt(nonce_hex, ciphertext_hex, &secret_key)
                             {
-                                print!("{decrypted_message}");
+                                println!("{decrypted_message}");
                             } else {
                                 eprintln!("Failed to decrypt message.");
                             }
