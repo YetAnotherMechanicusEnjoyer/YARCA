@@ -163,16 +163,7 @@ fn input_manager(
     }
 }
 
-fn main() -> io::Result<()> {
-    dotenvy::dotenv().ok();
-
-    let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the .env file");
-
-    let secret_key: [u8; 32] = match secret_key_string.as_bytes().try_into() {
-        Ok(key_bytes) => key_bytes,
-        Err(_) => panic!("SECRET must be exactly 32 bytes long."),
-    };
-
+fn start_input() -> io::Result<(String, String)> {
     print!("Enter server's address: ");
     stdout().flush()?;
     let mut addr = String::new();
@@ -184,6 +175,21 @@ fn main() -> io::Result<()> {
     let mut username = String::new();
     io::stdin().read_line(&mut username)?;
     let username = username.trim().to_string();
+
+    Ok((addr, username))
+}
+
+fn main() -> io::Result<()> {
+    dotenvy::dotenv().ok();
+
+    let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the .env file");
+
+    let secret_key: [u8; 32] = match secret_key_string.as_bytes().try_into() {
+        Ok(key_bytes) => key_bytes,
+        Err(_) => panic!("SECRET must be exactly 32 bytes long."),
+    };
+
+    let (addr, username) = start_input()?;
 
     let cmds_map = init_hashmap();
 
