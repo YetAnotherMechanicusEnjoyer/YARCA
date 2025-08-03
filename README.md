@@ -5,9 +5,11 @@
 - [About](#about)
 - [Installation](#installation)
   * [Dependencies](#dependencies)
-- [Usage](#usage)
   * [Server](#server)
   * [Client](#client)
+- [Usage](#usage)
+  * [Server](#server-1)
+  * [Client](#client-1)
 - [License](#license)
 
 ## About
