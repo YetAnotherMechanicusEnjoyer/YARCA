@@ -88,6 +88,7 @@ fn input_manager(
         KeyCode::Enter => {
             if !input_buffer.is_empty() {
                 let input = input_buffer.trim().to_string();
+                input_buffer.clear();
                 if input.starts_with('/') {
                     let command = input.trim_start_matches('/');
                     execute!(io::stdout(), Print("\n\r")).unwrap();
@@ -99,18 +100,19 @@ fn input_manager(
                                 Print(format!("Command Error (\"{command}\"): {e}\n\r"))
                             )
                             .unwrap();
+                            return None;
                         }
                     };
-                } else {
-                    return Some(ClientEvent::UserInput(input_buffer.to_string()));
                 }
-                input_buffer.clear();
                 execute!(
                     io::stdout(),
                     cursor::MoveToColumn(0),
                     Clear(ClearType::CurrentLine)
                 )
                 .unwrap();
+                Some(ClientEvent::UserInput(input))
+            } else {
+                None
             }
         }
         KeyCode::Backspace => {
@@ -123,14 +125,15 @@ fn input_manager(
                 )
                 .unwrap();
             }
+            None
         }
         KeyCode::Char(c) => {
             input_buffer.push(c);
             execute!(io::stdout(), Print(c)).unwrap();
+            None
         }
-        _ => return None,
+        _ => None,
     }
-    None
 }
 
 fn main() -> io::Result<()> {
@@ -262,7 +265,7 @@ fn main() -> io::Result<()> {
                         }
                     }
                     Ok(_) => {
-                        execute!(io::stdout(), Print("\nServer disconnected.\n\r")).unwrap();
+                        println!("\nServer disconnected.");
                         let _ = tx_read_event.send(ClientEvent::ServerDisconnected);
                         break;
                     }
