@@ -103,27 +103,35 @@ fn main() -> io::Result<()> {
 
     let cmds_map = init_hashmap();
 
+    enable_raw_mode().unwrap();
+
+    struct TerminalGuard;
+    impl Drop for TerminalGuard {
+        fn drop(&mut self) {
+            execute!(
+                io::stdout(),
+                cursor::MoveTo(0, 0),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+            )
+            .unwrap();
+            disable_raw_mode().unwrap();
+        }
+    }
+    let _guard = TerminalGuard;
+
+    execute!(
+        io::stdout(),
+        cursor::MoveTo(0, 0),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+    )
+    .unwrap();
+
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
     let tx_stdin = tx_main_event.clone();
     thread::spawn(move || {
         let mut input_buffer = String::new();
-        enable_raw_mode().unwrap();
 
-        struct TerminalGuard;
-        impl Drop for TerminalGuard {
-            fn drop(&mut self) {
-                disable_raw_mode().unwrap();
-            }
-        }
-        let _guard = TerminalGuard;
-
-        execute!(
-            io::stdout(),
-            cursor::MoveToColumn(0),
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
-        )
-        .unwrap();
         loop {
             if let Ok(Event::Key(key_event)) = event::read() {
                 if key_event.kind == KeyEventKind::Press {
