@@ -79,7 +79,7 @@ fn main() -> Result<(), std::io::Error> {
                             continue;
                         }
                         let (nonce, encrypted_msg) = encrypt(&join_msg, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}\n");
+                        let message_to_send = format!("{nonce}:{encrypted_msg}");
 
                         let mut client_stream = client_stream_mutex.lock().unwrap();
 
@@ -95,7 +95,7 @@ fn main() -> Result<(), std::io::Error> {
                     for (_, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
                         let (nonce, encrypted_msg) =
                             encrypt(&disconnected_msg, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}\n");
+                        let message_to_send = format!("{nonce}:{encrypted_msg}");
 
                         let mut client_stream = client_stream_mutex.lock().unwrap();
 
@@ -111,7 +111,7 @@ fn main() -> Result<(), std::io::Error> {
                             continue;
                         }
                         let (nonce, encrypted_msg) = encrypt(&full_message, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}\n");
+                        let message_to_send = format!("{nonce}:{encrypted_msg}");
 
                         let mut client_stream = client_stream_mutex.lock().unwrap();
 
