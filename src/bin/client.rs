@@ -1,10 +1,10 @@
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     execute,
     style::Print,
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use hex::{decode, encode};
 use rand::{Rng, rng};
@@ -79,6 +79,60 @@ fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     hashmap
 }
 
+fn input_manager(
+    input_buffer: &mut String,
+    key_event: KeyEvent,
+    cmds_map: &HashMap<&str, ClientEvent>,
+) -> Option<ClientEvent> {
+    match key_event.code {
+        KeyCode::Enter => {
+            if !input_buffer.is_empty() {
+                let input = input_buffer.trim().to_string();
+                if input.starts_with('/') {
+                    let command = input.trim_start_matches('/');
+                    execute!(io::stdout(), Print("\n\r")).unwrap();
+                    match commands(cmds_map, command) {
+                        Ok(event) => return Some(event),
+                        Err(e) => {
+                            execute!(
+                                io::stdout(),
+                                Print(format!("Command Error (\"{command}\"): {e}\n\r"))
+                            )
+                            .unwrap();
+                        }
+                    };
+                } else {
+                    return Some(ClientEvent::UserInput(input_buffer.to_string()));
+                }
+                input_buffer.clear();
+                execute!(
+                    io::stdout(),
+                    cursor::MoveToColumn(0),
+                    Clear(ClearType::CurrentLine)
+                )
+                .unwrap();
+            }
+        }
+        KeyCode::Backspace => {
+            if !input_buffer.is_empty() {
+                input_buffer.pop();
+                execute!(
+                    io::stdout(),
+                    cursor::MoveLeft(1),
+                    Clear(ClearType::UntilNewLine)
+                )
+                .unwrap();
+            }
+        }
+        KeyCode::Char(c) => {
+            input_buffer.push(c);
+            execute!(io::stdout(), Print(c)).unwrap();
+        }
+        _ => return None,
+    }
+    None
+}
+
 fn main() -> io::Result<()> {
     dotenvy::dotenv().ok();
 
@@ -108,23 +162,13 @@ fn main() -> io::Result<()> {
     struct TerminalGuard;
     impl Drop for TerminalGuard {
         fn drop(&mut self) {
-            execute!(
-                io::stdout(),
-                cursor::MoveTo(0, 0),
-                crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
-            )
-            .unwrap();
+            execute!(io::stdout(), cursor::MoveTo(0, 0), Clear(ClearType::All)).unwrap();
             disable_raw_mode().unwrap();
         }
     }
     let _guard = TerminalGuard;
 
-    execute!(
-        io::stdout(),
-        cursor::MoveTo(0, 0),
-        crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
-    )
-    .unwrap();
+    execute!(io::stdout(), cursor::MoveTo(0, 0), Clear(ClearType::All)).unwrap();
 
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
@@ -135,62 +179,11 @@ fn main() -> io::Result<()> {
         loop {
             if let Ok(Event::Key(key_event)) = event::read() {
                 if key_event.kind == KeyEventKind::Press {
-                    match key_event.code {
-                        KeyCode::Enter => {
-                            if !input_buffer.is_empty() {
-                                let input = input_buffer.trim().to_string();
-                                if input.starts_with('/') {
-                                    let command = input.trim_start_matches('/');
-                                    execute!(io::stdout(), Print("\n\r")).unwrap();
-                                    match commands(&cmds_map, command) {
-                                        Ok(event) => {
-                                            let _ = tx_stdin.send(event.clone());
-                                            if event == ClientEvent::Quit {
-                                                break;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            execute!(
-                                                io::stdout(),
-                                                Print(format!(
-                                                    "Command Error (\"{command}\"): {e}\n\r"
-                                                ))
-                                            )
-                                            .unwrap();
-                                        }
-                                    };
-                                } else {
-                                    let _ = tx_stdin.send(ClientEvent::UserInput(input.clone()));
-                                }
-                                input_buffer.clear();
-                                execute!(
-                                    io::stdout(),
-                                    cursor::MoveToColumn(0),
-                                    crossterm::terminal::Clear(
-                                        crossterm::terminal::ClearType::CurrentLine
-                                    )
-                                )
-                                .unwrap();
-                            }
+                    if let Some(event) = input_manager(&mut input_buffer, key_event, &cmds_map) {
+                        let _ = tx_stdin.send(event.clone());
+                        if event == ClientEvent::Quit {
+                            break;
                         }
-                        KeyCode::Backspace => {
-                            if !input_buffer.is_empty() {
-                                input_buffer.pop();
-                                execute!(
-                                    io::stdout(),
-                                    cursor::MoveLeft(1),
-                                    crossterm::terminal::Clear(
-                                        crossterm::terminal::ClearType::UntilNewLine
-                                    )
-                                )
-                                .unwrap();
-                            }
-                        }
-                        KeyCode::Char(c) => {
-                            input_buffer.push(c);
-                            execute!(io::stdout(), Print(c)).unwrap();
-                        }
-                        _ => {}
                     }
                 }
             }
