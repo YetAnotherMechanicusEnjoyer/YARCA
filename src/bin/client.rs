@@ -133,6 +133,7 @@ fn main() -> io::Result<()> {
                                 let input = input_buffer.trim().to_string();
                                 if input.starts_with('/') {
                                     let command = input.trim_start_matches('/');
+                                    execute!(io::stdout(), Print("\n\r")).unwrap();
                                     match commands(&cmds_map, command) {
                                         Ok(event) => {
                                             let _ = tx_stdin.send(event.clone());
@@ -141,7 +142,13 @@ fn main() -> io::Result<()> {
                                             }
                                         }
                                         Err(e) => {
-                                            eprintln!("Command Error (\"{command}\"): {e}\n\r");
+                                            execute!(
+                                                io::stdout(),
+                                                Print(format!(
+                                                    "Command Error (\"{command}\"): {e}\n\r"
+                                                ))
+                                            )
+                                            .unwrap();
                                         }
                                     };
                                 } else {
