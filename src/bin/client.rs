@@ -24,8 +24,14 @@ const RECONNECT_DELAY: u64 = 5;
 enum ClientEvent {
     UserInput(String),
     ServerDisconnected,
-    Custom(fn(bool) -> &'static str),
+    Custom(Command),
     Quit,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum Command {
+    Help,
+    Addr,
 }
 
 enum EventError {
@@ -38,7 +44,17 @@ impl fmt::Display for ClientEvent {
             ClientEvent::UserInput(_) => "User's input",
             ClientEvent::ServerDisconnected => "No connexion with server",
             ClientEvent::Quit => "Quit chat",
-            ClientEvent::Custom(help) => help(true),
+            ClientEvent::Custom(cmd) => &(format!("{cmd}")),
+        };
+        f.write_str(desc)
+    }
+}
+
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let desc = match *self {
+            Command::Help => "Shows available commands",
+            Command::Addr => "Shows server's address",
         };
         f.write_str(desc)
     }
@@ -61,16 +77,11 @@ fn commands(cmds_map: &HashMap<&str, ClientEvent>, cmd: &str) -> Result<ClientEv
     }
 }
 
-fn help(get_desc: bool) -> &'static str {
-    if get_desc {
-        "Shows available commands"
-    } else {
-        let cmds = init_hashmap();
-        execute!(io::stdout(), Print("Available Commands :\n\r")).unwrap();
-        for (cmd, desc) in cmds.iter() {
-            execute!(io::stdout(), Print(format!("  {cmd} : {desc}\n\r"))).unwrap();
-        }
-        ""
+fn help() {
+    let cmds = init_hashmap();
+    execute!(io::stdout(), Print("Available Commands :\n\r")).unwrap();
+    for (cmd, desc) in cmds.iter() {
+        execute!(io::stdout(), Print(format!("  {cmd} : {desc}\n\r"))).unwrap();
     }
 }
 
@@ -102,7 +113,8 @@ fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<Stri
 fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     let mut hashmap: HashMap<&'static str, ClientEvent> = HashMap::new();
     hashmap.insert("quit", ClientEvent::Quit);
-    hashmap.insert("help", ClientEvent::Custom(help));
+    hashmap.insert("help", ClientEvent::Custom(Command::Help));
+    hashmap.insert("addr", ClientEvent::Custom(Command::Addr));
     hashmap
 }
 
@@ -353,9 +365,14 @@ fn main() -> io::Result<()> {
                         let _ = stream.shutdown(std::net::Shutdown::Both);
                         break 'connection_loop;
                     }
-                    ClientEvent::Custom(func) => {
-                        let _ = func(false);
-                    }
+                    ClientEvent::Custom(cmd) => match cmd {
+                        Command::Help => {
+                            help();
+                        }
+                        Command::Addr => {
+                            execute!(io::stdout(), Print(format!("Server : {addr}\n\r")))?;
+                        }
+                    },
                 },
                 Err(mpsc::TryRecvError::Empty) => {
                     thread::sleep(Duration::from_millis(50));
