@@ -128,9 +128,15 @@ fn input_manager(
             if !input_buffer.is_empty() {
                 let input = input_buffer.trim().to_string();
                 input_buffer.clear();
+                execute!(
+                    io::stdout(),
+                    cursor::MoveToColumn(0),
+                    Clear(ClearType::CurrentLine)
+                )
+                .unwrap();
                 if input.starts_with('/') {
                     let command = input.trim_start_matches('/');
-                    execute!(io::stdout(), Print("\n\r")).unwrap();
+                    execute!(io::stdout(), Print(format!("\n>>> {input}\n\r"))).unwrap();
                     match commands(cmds_map, command) {
                         Ok(event) => return Some(event),
                         Err(e) => {
@@ -143,12 +149,6 @@ fn input_manager(
                         }
                     };
                 }
-                execute!(
-                    io::stdout(),
-                    cursor::MoveToColumn(0),
-                    Clear(ClearType::CurrentLine)
-                )
-                .unwrap();
                 Some(ClientEvent::UserInput(input))
             } else {
                 None
