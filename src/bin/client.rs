@@ -25,13 +25,13 @@ enum ClientEvent {
     UserInput(String),
     ServerDisconnected,
     Custom(Command),
-    Quit,
 }
 
 #[derive(PartialEq, Clone, Copy)]
 enum Command {
     Help,
     Addr,
+    Quit,
 }
 
 enum EventError {
@@ -43,7 +43,6 @@ impl fmt::Display for ClientEvent {
         let desc = match *self {
             ClientEvent::UserInput(_) => "User's input",
             ClientEvent::ServerDisconnected => "No connexion with server",
-            ClientEvent::Quit => "Quit chat",
             ClientEvent::Custom(cmd) => &(format!("{cmd}")),
         };
         f.write_str(desc)
@@ -55,6 +54,7 @@ impl fmt::Display for Command {
         let desc = match *self {
             Command::Help => "Shows available commands",
             Command::Addr => "Shows server's address",
+            Command::Quit => "Quit chat",
         };
         f.write_str(desc)
     }
@@ -112,7 +112,7 @@ fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<Stri
 
 fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     let mut hashmap: HashMap<&'static str, ClientEvent> = HashMap::new();
-    hashmap.insert("quit", ClientEvent::Quit);
+    hashmap.insert("quit", ClientEvent::Custom(Command::Quit));
     hashmap.insert("help", ClientEvent::Custom(Command::Help));
     hashmap.insert("addr", ClientEvent::Custom(Command::Addr));
     hashmap
@@ -229,7 +229,7 @@ fn main() -> io::Result<()> {
                 if key_event.kind == KeyEventKind::Press {
                     if let Some(event) = input_manager(&mut input_buffer, key_event, &cmds_map) {
                         let _ = tx_stdin.send(event.clone());
-                        if event == ClientEvent::Quit {
+                        if event == ClientEvent::Custom(Command::Quit) {
                             break;
                         }
                     }
@@ -360,17 +360,17 @@ fn main() -> io::Result<()> {
                     ClientEvent::ServerDisconnected => {
                         break;
                     }
-                    ClientEvent::Quit => {
-                        execute!(io::stdout(), Print("\nDisconnecting...\n\r"))?;
-                        let _ = stream.shutdown(std::net::Shutdown::Both);
-                        break 'connection_loop;
-                    }
                     ClientEvent::Custom(cmd) => match cmd {
                         Command::Help => {
                             help();
                         }
                         Command::Addr => {
                             execute!(io::stdout(), Print(format!("Server : {addr}\n\r")))?;
+                        }
+                        Command::Quit => {
+                            execute!(io::stdout(), Print("\nDisconnecting...\n\r"))?;
+                            let _ = stream.shutdown(std::net::Shutdown::Both);
+                            break 'connection_loop;
                         }
                     },
                 },
