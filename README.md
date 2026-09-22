@@ -5,6 +5,7 @@
 - [About](#about)
 - [Installation](#installation)
   * [Dependencies](#dependencies)
+  * [Crates](#Crates)
   * [Server](#server)
   * [Client](#client)
 - [Usage](#usage)
@@ -24,6 +25,21 @@
 > [!IMPORTANT]
 > Make sure to have [Rust](https://www.rust-lang.org/tools/install) installed.
 
+### Crates
+- aes-gcm
+ - version: 0.10.3
+ - features: aes
+- crossterm
+ - version: 0.29.0
+- dotenvy
+ - version: 0.15.7
+- hex
+ - version: 0.4.3
+- rand
+ - version: 0.9.2
+- you
+ - version: happy
+
 ### Server
 
 > [!NOTE]
@@ -40,7 +56,7 @@ SECRET="your-32-bits-long-variable-here!"
 > Compile the server binary with [Cargo](https://doc.rust-lang.org/cargo/).
 
 ```bash
-cargo build --release --bin YARCA
+cargo build --release --bin server
 ```
 
 ### Client
@@ -59,32 +75,22 @@ cargo build --release --bin client
 > [!NOTE]
 > Start the server with [Cargo](https://doc.rust-lang.org/cargo/) after building it, or execute the binary.
 
-Cargo :
+Example :
 ```bash
-cargo run --release --bin YARCA
+cargo run --release --bin server
 ```
 
-Binary :
-```bash
-chmod +x /path/to/repo/target/release/YARCA
-/path/to/repo/target/release/YARCA
-```
 
 ### Client
 
 > [!NOTE]
 > Run client with [Cargo](https://doc.rust-lang.org/cargo/) after building it, or execute the binary.
 
-Cargo :
+Example :
 ```bash
 cargo run --release --bin client
 ```
 
-Binary :
-```bash
-chmod +x /path/to/repo/target/release/client
-/path/to/repo/target/release/client
-```
 
 ## Licence
 [MIT](https://github.com/YetAnotherMechanicusEnjoyer/YARCA/blob/53174069377b73f1c96ca9761ef2c6ec93532167/LICENSE)
