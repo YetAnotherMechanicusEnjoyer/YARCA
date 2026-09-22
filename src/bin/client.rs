@@ -1,13 +1,10 @@
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent},
     execute,
     style::Print,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
-use hex::{decode, encode};
-use rand::{Rng, rng};
 use std::{
     collections::HashMap,
     fmt,
@@ -17,6 +14,7 @@ use std::{
     thread,
     time::Duration,
 };
+use yarca::*;
 
 const RECONNECT_DELAY: u64 = 5;
 
@@ -85,36 +83,12 @@ fn help() {
     }
 }
 
-fn encrypt(plaintext: &str, key: &[u8; 32]) -> (String, String) {
-    let mut rng = rng();
-    let nonce_bytes: [u8; 12] = rng.random();
-    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let cipher_text = cipher
-        .encrypt(nonce, plaintext.as_bytes())
-        .expect("Encryption failed.");
-    (encode(nonce_bytes), encode(&cipher_text))
-}
-
-fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<String> {
-    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
-
-    let nonce_bytes = decode(nonce_hex).ok()?;
-    let ciphertext_bytes = decode(ciphertext_hex).ok()?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    match cipher.decrypt(nonce, ciphertext_bytes.as_slice()) {
-        Ok(plaintext_bytes) => String::from_utf8(plaintext_bytes).ok(),
-        Err(_) => None,
-    }
-}
-
 fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     let mut hashmap: HashMap<&'static str, ClientEvent> = HashMap::new();
     hashmap.insert("quit", ClientEvent::Custom(Command::Quit));
     hashmap.insert("help", ClientEvent::Custom(Command::Help));
     hashmap.insert("addr", ClientEvent::Custom(Command::Addr));
+    hashmap.insert("e", ClientEvent::Custom(Command::Quit)); // Emergency quit >v<
     hashmap
 }
 
@@ -225,14 +199,12 @@ fn main() -> io::Result<()> {
         let mut input_buffer = String::new();
 
         loop {
-            if let Ok(Event::Key(key_event)) = event::read() {
-                if key_event.kind == KeyEventKind::Press {
-                    if let Some(event) = input_manager(&mut input_buffer, key_event, &cmds_map) {
-                        let _ = tx_stdin.send(event.clone());
-                        if event == ClientEvent::Custom(Command::Quit) {
-                            break;
-                        }
-                    }
+            if let Ok(Event::Key(key_event)) = event::read()
+                && let Some(event) = input_manager(&mut input_buffer, key_event, &cmds_map)
+            {
+                let _ = tx_stdin.send(event.clone());
+                if let ClientEvent::Custom(Command::Quit) = event {
+                    break;
                 }
             }
         }
@@ -242,11 +214,11 @@ fn main() -> io::Result<()> {
         let mut stream = loop {
             execute!(
                 io::stdout(),
-                Print(format!("Attempting to connect to {}...\n\r", &addr))
+                Print(format!("Attempting to connect to {}...\n\r", addr))
             )?;
             match TcpStream::connect(&addr) {
                 Ok(mut s) => {
-                    execute!(io::stdout(), Print(format!("Connected to {}\n\r", &addr)))?;
+                    execute!(io::stdout(), Print(format!("Connected to {}\n\r", addr)))?;
 
                     let (nonce, encrypted_username) = encrypt(&username, &secret_key);
                     let encrypted_message = format!("{nonce}:{encrypted_username}\n\r");
@@ -270,7 +242,7 @@ fn main() -> io::Result<()> {
                 Err(e) => {
                     execute!(
                         io::stdout(),
-                        Print(format!("Failed to connect to {}: {e}\n\r", &addr))
+                        Print(format!("Failed to connect to {}: {e}\n\r", addr))
                     )?;
                     execute!(
                         io::stdout(),

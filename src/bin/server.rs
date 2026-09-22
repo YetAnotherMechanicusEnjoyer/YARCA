@@ -5,10 +5,7 @@ use std::{
     sync::{Arc, Mutex},
     thread::spawn,
 };
-
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
-use hex::{decode, encode};
-use rand::{Rng, rng};
+use yarca::*;
 
 #[derive(Debug)]
 enum ServerMessage {
@@ -17,28 +14,25 @@ enum ServerMessage {
     ChatMessage(String, String),
 }
 
-fn encrypt(plaintext: &str, key: &[u8; 32]) -> (String, String) {
-    let mut rng = rng();
-    let nonce_bytes: [u8; 12] = rng.random();
-    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
-    let nonce = Nonce::from_slice(&nonce_bytes);
+type ClientsType = Arc<Mutex<HashMap<String, Arc<Mutex<TcpStream>>>>>;
+fn broadcast(
+    string: &str,
+    secret_key_arc: Arc<[u8; 32]>,
+    usernameskip: Option<&str>,
+    clients: ClientsType,
+) {
+    for (name, client_stream_mutex) in clients.lock().unwrap().iter() {
+        if let Some(username) = usernameskip
+            && name == username
+        {
+            continue;
+        }
+        let (nonce, encrypted_msg) = encrypt(string, &secret_key_arc);
+        let message_to_send = format!("{nonce}:{encrypted_msg}");
 
-    let cipher_text = cipher
-        .encrypt(nonce, plaintext.as_bytes())
-        .expect("Encryption failed.");
-    (encode(nonce_bytes), encode(&cipher_text))
-}
+        let mut client_stream = client_stream_mutex.lock().unwrap();
 
-fn decrypt(nonce_hex: &str, ciphertext_hex: &str, key: &[u8; 32]) -> Option<String> {
-    let cipher = Aes256Gcm::new_from_slice(key).expect("Cipher failed.");
-
-    let nonce_bytes = decode(nonce_hex).ok()?;
-    let ciphertext_bytes = decode(ciphertext_hex).ok()?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    match cipher.decrypt(nonce, ciphertext_bytes.as_slice()) {
-        Ok(plaintext_bytes) => String::from_utf8(plaintext_bytes).ok(),
-        Err(_) => None,
+        let _ = client_stream.write_all(message_to_send.as_bytes());
     }
 }
 
@@ -53,11 +47,10 @@ fn main() -> Result<(), std::io::Error> {
 
     let addr = std::env::var("ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into());
     let listener = TcpListener::bind(&addr)?;
-    println!("Server listening on {}", &addr);
+    println!("Server listening on {}", addr);
 
     let (tx_server, rx_server) = std::sync::mpsc::channel::<ServerMessage>();
-    let clients: Arc<Mutex<HashMap<String, Arc<Mutex<TcpStream>>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let clients: ClientsType = Arc::new(Mutex::new(HashMap::new()));
 
     let clients_clone = clients.clone();
     let secret_key_arc = Arc::new(secret_key);
@@ -73,47 +66,34 @@ fn main() -> Result<(), std::io::Error> {
                         .unwrap()
                         .insert(username.clone(), stream);
 
-                    let join_msg = format!("{username} has joined chat.");
-                    for (name, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
-                        if name == &username {
-                            continue;
-                        }
-                        let (nonce, encrypted_msg) = encrypt(&join_msg, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}");
-
-                        let mut client_stream = client_stream_mutex.lock().unwrap();
-
-                        let _ = client_stream.write_all(message_to_send.as_bytes());
-                    }
+                    broadcast(
+                        &format!("{username} has joined chat."),
+                        secret_key_arc_clone.clone(),
+                        Some(&username),
+                        clients_clone.clone(),
+                    );
                 }
                 ServerMessage::ClientDisconnected(username) => {
                     println!("Client {username} disconnected.");
                     clients_clone.lock().unwrap().remove(&username);
 
-                    let disconnected_msg = format!("{username} has left chat.");
-
-                    for (_, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
-                        let (nonce, encrypted_msg) =
-                            encrypt(&disconnected_msg, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}");
-
-                        let mut client_stream = client_stream_mutex.lock().unwrap();
-
-                        let _ = client_stream.write_all(message_to_send.as_bytes());
-                    }
+                    broadcast(
+                        &format!("{username} has left chat."),
+                        secret_key_arc_clone.clone(),
+                        None,
+                        clients_clone.clone(),
+                    );
                 }
                 ServerMessage::ChatMessage(sender, content) => {
                     let full_message = format!("[{sender}]: {content}");
                     println!("Broadcasting: {}", full_message.trim());
 
-                    for (_, client_stream_mutex) in clients_clone.lock().unwrap().iter() {
-                        let (nonce, encrypted_msg) = encrypt(&full_message, &secret_key_arc_clone);
-                        let message_to_send = format!("{nonce}:{encrypted_msg}");
-
-                        let mut client_stream = client_stream_mutex.lock().unwrap();
-
-                        let _ = client_stream.write_all(message_to_send.as_bytes());
-                    }
+                    broadcast(
+                        &full_message,
+                        secret_key_arc_clone.clone(),
+                        None,
+                        clients_clone.clone(),
+                    );
                 }
             }
         }
