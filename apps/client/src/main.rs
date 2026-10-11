@@ -156,7 +156,6 @@ fn input_manager(
         KeyCode::Delete => {
             disable_raw_mode().unwrap();
             std::process::exit(1);
-            None
         }
         _ => None,
     }
@@ -215,7 +214,7 @@ fn main() -> anyhow::Result<()> {
     let _guard = TerminalGuard;
 
     execute!(io::stdout(), cursor::MoveTo(0, 0), Clear(ClearType::All)).unwrap();
-    execute!(io::stdout(), Print("force exit: press <Delete>\r\n"));
+    execute!(io::stdout(), Print("force exit: press <Delete>\r\n"))?;
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
     let tx_stdin = tx_main_event.clone();
