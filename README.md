@@ -37,6 +37,8 @@
  - version: 0.4.3
 - rand
  - version: 0.9.2
+- anyhow
+ - version: 1.0.104
 - you
  - version: happy
 
