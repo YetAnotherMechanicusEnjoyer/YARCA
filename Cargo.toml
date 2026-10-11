@@ -1,15 +1,21 @@
-[package]
-name = "YARCA"
+[workspace]
+resolver = "2"
+members = [
+	"libs/core",
+	"apps/server",
+	"apps/client"
+]
+[workspace.package]
 version = "0.4.6"
 edition = "2024"
+authors = ["YetAnotherMechanicusEnjoyer <https://github.com/YetAnotherMechanicusEnjoyer>"]
+license = "MIT"
 
-[lib]
-name = "yarca"
-path = "src/lib.rs"
-
-[dependencies]
+[workspace.dependencies]
 aes-gcm = { version = "0.10.3", features = ["aes"] }
 crossterm = "0.29.0"
 dotenvy = "0.15.7"
 hex = "0.4.3"
 rand = "0.9.2"
+anyhow = "1.0.104"
+core = { path = "./libs/core" }

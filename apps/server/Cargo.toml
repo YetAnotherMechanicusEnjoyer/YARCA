@@ -1,0 +1,12 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm.workspace = true
+dotenvy.workspace = true
+hex.workspace = true
+rand.workspace = true
+core.workspace = true
+anyhow.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+core.workspace = true
+crossterm.workspace = true
+dotenvy.workspace = true
+anyhow.workspace = true

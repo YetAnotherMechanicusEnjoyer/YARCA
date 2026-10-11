@@ -1,3 +1,5 @@
+use anyhow::Context;
+use core::*;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
@@ -5,6 +7,7 @@ use crossterm::{
     style::Print,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
+use std::fs;
 use std::{
     collections::HashMap,
     fmt,
@@ -14,9 +17,8 @@ use std::{
     thread,
     time::Duration,
 };
-use yarca::*;
 
-const RECONNECT_DELAY: u64 = 5;
+const RECONNECT_DELAY: u64 = 2;
 
 #[derive(PartialEq, Clone)]
 enum ClientEvent {
@@ -30,6 +32,8 @@ enum Command {
     Help,
     Addr,
     Quit,
+    Name,
+    Version,
 }
 
 enum EventError {
@@ -53,6 +57,8 @@ impl fmt::Display for Command {
             Command::Help => "Shows available commands",
             Command::Addr => "Shows server's address",
             Command::Quit => "Quit chat",
+            Command::Name => "Name of project",
+            Command::Version => "Version of project",
         };
         f.write_str(desc)
     }
@@ -89,6 +95,8 @@ fn init_hashmap() -> HashMap<&'static str, ClientEvent> {
     hashmap.insert("help", ClientEvent::Custom(Command::Help));
     hashmap.insert("addr", ClientEvent::Custom(Command::Addr));
     hashmap.insert("e", ClientEvent::Custom(Command::Quit)); // Emergency quit >v<
+    hashmap.insert("version", ClientEvent::Custom(Command::Version));
+    hashmap.insert("name", ClientEvent::Custom(Command::Name));
     hashmap
 }
 
@@ -145,37 +153,53 @@ fn input_manager(
             execute!(io::stdout(), Print(c)).unwrap();
             None
         }
+        KeyCode::Delete => {
+            disable_raw_mode().unwrap();
+            std::process::exit(1);
+            None
+        }
         _ => None,
     }
 }
 
-fn start_input() -> io::Result<(String, String)> {
-    print!("Enter server's address: ");
-    stdout().flush()?;
-    let mut addr = String::new();
-    io::stdin().read_line(&mut addr)?;
-    let addr = addr.trim().to_string();
-
+fn start_input() -> anyhow::Result<String> {
     print!("Enter your username: ");
     stdout().flush()?;
     let mut username = String::new();
     io::stdin().read_line(&mut username)?;
     let username = username.trim().to_string();
 
-    Ok((addr, username))
+    Ok(username)
 }
 
-fn main() -> io::Result<()> {
-    dotenvy::dotenv().ok();
+fn dotenvy_init() -> anyhow::Result<()> {
+    let home = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .context("env HOME not set")?;
+    let config_filename = home.join(".config/yarca/config.env");
+    if !config_filename.exists() {
+        if let Some(dir) = config_filename.parent() {
+            fs::create_dir_all(dir)?;
+        } else {
+            eprintln!("WHA WHA WHA WHATT???");
+        }
+        fs::write(&config_filename, include_str!("../../../.env.example"))?;
+    }
+    dotenvy::from_filename(&config_filename).ok();
+    Ok(())
+}
 
-    let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the .env file");
+fn main() -> anyhow::Result<()> {
+    dotenvy_init()?;
+    let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the config file");
 
     let secret_key: [u8; 32] = match secret_key_string.as_bytes().try_into() {
         Ok(key_bytes) => key_bytes,
         Err(_) => panic!("SECRET must be exactly 32 bytes long."),
     };
 
-    let (addr, username) = start_input()?;
+    let username = start_input()?;
+    let addr = std::env::var("ADDR").expect("ADDR must be set in the .env file");
 
     let cmds_map = init_hashmap();
 
@@ -191,7 +215,7 @@ fn main() -> io::Result<()> {
     let _guard = TerminalGuard;
 
     execute!(io::stdout(), cursor::MoveTo(0, 0), Clear(ClearType::All)).unwrap();
-
+    execute!(io::stdout(), Print("force exit: press <Delete>\r\n"));
     let (tx_main_event, rx_main_event) = mpsc::channel::<ClientEvent>();
 
     let tx_stdin = tx_main_event.clone();
@@ -343,6 +367,15 @@ fn main() -> io::Result<()> {
                             execute!(io::stdout(), Print("\nDisconnecting...\n\r"))?;
                             let _ = stream.shutdown(std::net::Shutdown::Both);
                             break 'connection_loop;
+                        }
+                        Command::Version => {
+                            execute!(
+                                io::stdout(),
+                                Print(format!("\nVersion: {}\r\n", PROJECTVERSION))
+                            )?;
+                        }
+                        Command::Name => {
+                            execute!(io::stdout(), Print(format!("\nName: {}\r\n", PROJECTNAME)))?;
                         }
                     },
                 },
