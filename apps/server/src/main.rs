@@ -1,3 +1,4 @@
+use core::*;
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -5,7 +6,6 @@ use std::{
     sync::{Arc, Mutex},
     thread::spawn,
 };
-use yarca::*;
 
 #[derive(Debug)]
 enum ServerMessage {
@@ -36,7 +36,7 @@ fn broadcast(
     }
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let secret_key_string = std::env::var("SECRET").expect("SECRET must be set in the .env file");

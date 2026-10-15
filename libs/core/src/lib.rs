@@ -2,6 +2,9 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use hex::{decode, encode};
 use rand::{Rng, rng};
 
+pub const PROJECTNAME: &str = env!("CARGO_PKG_NAME");
+pub const PROJECTVERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> (String, String) {
     let mut rng = rng();
     let nonce_bytes: [u8; 12] = rng.random();
