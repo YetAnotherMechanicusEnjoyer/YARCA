@@ -2,7 +2,7 @@ YARCA ROADMAP
 =============
 
 [ ] TOKIO SERVER              >:D
-[ ] PROTOCOL CRATE            >:D
+[x] PROTOCOL CRATE            >:D
 [ ] SECURITY                  >:D
 [ ] AXUM + TYPESCRIPT         >:D
 [ ] VOICE + VIDEO             >:DDDD
@@ -15,7 +15,7 @@ YARCA ROADMAP
 [ ] NGINX                     >:DDDD
 [ ] DOCKER COMPOSE            >:D
 [ ] AI                        >:)
-[ ] ICE CREAM                 >V<
+[x] ICE CREAM                 >V<
 [ ] ENTERPRISE                >:D
 [ ] WEBSITE                   >:D
 [ ] REMOVE ALL SOCIAL MEDIA   >:D
